@@ -54,17 +54,34 @@ This will create an uber jar in the `target` directory.
 
 ### Adding UDFs to Flink
 
-1. Copy the uber jar to your Flink lib directory:
+1. If you are using Apache Flink copy the uber jar to your Flink lib directory:
 
 ```bash
 cp target/flink-geo-udfs-1.0.0.jar $FLINK_HOME/lib/
 ```
+
+If you are using fully managed Flink in Confluent Cloud, you can go to the environment and upload the jar as an artifact. For more information, see [Create a User-Defined Function with Confluent Cloud for Apache Flink](https://docs.confluent.io/cloud/current/flink/how-to-guides/create-udf.html?ajs_aid=05c4f5b9-b963-4c91-8574-b7ed1ba3dd26&ajs_uid=165).
 
 2. Restart your Flink cluster to pick up the new functions.
 
 ### Registering Functions in Flink SQL
 
 You need to register each function before using it in Flink SQL:
+
+**Confluent Cloud Flink:**
+```sql
+-- Register scalar functions
+CREATE FUNCTION geo_area AS 'com.github.wlaforest.flink.geo.udfs.GeoAreaUDF' USING JAR 'confluent-artifact://cfa-xxxxxx';
+CREATE FUNCTION geo_contained AS 'com.github.wlaforest.flink.geo.udfs.GeoContainedUDF' USING JAR 'confluent-artifact://cfa-xxxxxx';
+CREATE FUNCTION geo_intersected AS 'com.github.wlaforest.flink.geo.udfs.GeoIntersectedUDF' USING JAR 'confluent-artifact://cfa-xxxxxx';
+CREATE FUNCTION geo_geohash AS 'com.github.wlaforest.flink.geo.udfs.GeoHashUDF' USING JAR 'confluent-artifact://cfa-xxxxxx';
+
+-- Register table function
+CREATE FUNCTION geo_covering_geohashes AS 'com.github.wlaforest.flink.geo.udfs.GeoCoveringGeoHashesUDTF' LANGUAGE JAVA;
+```
+
+<details>
+<summary><strong>Click here for Apache Flink syntax</strong></summary>
 
 ```sql
 -- Register scalar functions
@@ -76,6 +93,8 @@ CREATE FUNCTION geo_geohash AS 'com.github.wlaforest.flink.geo.udfs.GeoHashUDF';
 -- Register table function
 CREATE FUNCTION geo_covering_geohashes AS 'com.github.wlaforest.flink.geo.udfs.GeoCoveringGeoHashesUDTF';
 ```
+
+</details>
 
 ### Using in Flink Table API (Java/Scala)
 
@@ -95,6 +114,24 @@ tableEnv.createTemporarySystemFunction("geo_covering_geohashes", GeoCoveringGeoH
 
 ### Creating test data
 
+**Confluent Cloud Flink:**
+```sql
+CREATE TABLE schools (
+    name STRING,
+    unity BOOLEAN,
+    wkt STRING
+);
+
+INSERT INTO schools VALUES 
+    ('Madison', true, 
+     'POLYGON((-77.27483600429103 38.89521905950339,-77.29131549647853 38.892012508280466,-77.31277316859767 38.89254694353762,-77.32066959193752 38.901097360742895,-77.31277316859767 38.90750949802689,-77.29938358119533 38.90697517537252,-77.30384677699611 38.91378748795597,-77.29818195155666 38.916325241169524,-77.30556339076564 38.92927972487108,-77.29869693568752 38.929413263931195,-77.29200214198634 38.93315225554382,-77.28307575038478 38.92741015163275,-77.2705444698672 38.92126692120997,-77.26608127406642 38.916191677473286,-77.2511467342715 38.91819510652208,-77.24634021571681 38.91191750646839,-77.27483600429103 38.89521905950339))'),
+    ('Oakton', true,
+     'POLYGON((-77.3029731301166 38.871966195174494,-77.26846919334902 38.89027347822612,-77.29662165916933 38.88492877364056,-77.34846339500918 38.89575138309681,-77.33249888695254 38.8699614616396,-77.3029731301166 38.871966195174494))');
+```
+
+<details>
+<summary><strong>Click here for Apache Flink syntax</strong></summary>
+
 ```sql
 CREATE TABLE schools (
     name STRING,
@@ -113,6 +150,8 @@ INSERT INTO schools VALUES
     ('Oakton', true,
      'POLYGON((-77.3029731301166 38.871966195174494,-77.26846919334902 38.89027347822612,-77.29662165916933 38.88492877364056,-77.34846339500918 38.89575138309681,-77.33249888695254 38.8699614616396,-77.3029731301166 38.871966195174494))');
 ```
+
+</details>
 
 ### Using scalar functions
 
@@ -143,24 +182,6 @@ FROM schools,
 LATERAL TABLE(geo_covering_geohashes(schools.wkt, 7)) AS T(geohash);
 ```
 
-This is particularly useful for spatial joins where you need to partition data by geohash:
-
-```sql
--- Example of spatial join using geohash partitioning
-WITH schools_with_geohash AS (
-    SELECT s.*, g.geohash
-    FROM schools s,
-    LATERAL TABLE(geo_covering_geohashes(s.wkt, 6)) AS g(geohash)
-),
-locations_with_geohash AS (
-    SELECT l.*, geo_geohash(l.lat, l.lon, 6) as geohash
-    FROM locations l
-)
-SELECT DISTINCT s.name, l.location_name
-FROM schools_with_geohash s
-JOIN locations_with_geohash l ON s.geohash = l.geohash
-WHERE geo_contained(l.lat, l.lon, s.wkt);
-```
 
 ## Migration from KSQLGeo
 
@@ -185,7 +206,7 @@ WHERE geo_contained(l.lat, l.lon, s.wkt);
 
 - The UDFs create a new `Spatial4JHelper` instance per task, which is efficient for parallel processing
 - Geohash precision affects performance - higher precision means more geohashes generated for covering operations
-- WKT parsing is done for each record, so consider pre-parsing if using the same geometry repeatedly
+- WKT and GeoJSON is parsed with each function invocation.  Once Flink has native geo types this will be much better
 
 ## Contributing
 
@@ -193,8 +214,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project inherits the licensing from the original KSQLGeo project.
+This project is licensed under the GNU Lesser General Public License v3.0 (LGPL-3.0).
 
-## Acknowledgments
+The LGPL is a permissive copyleft license that allows this library to be linked with proprietary software, while ensuring that modifications to the library itself remain open source. See the [LICENSE](LICENSE) file for the full license text.
 
-This project is based on the excellent work done in [KSQLGeo](https://github.com/wlaforest/KSQLGeo) by Will LaForest.
+
