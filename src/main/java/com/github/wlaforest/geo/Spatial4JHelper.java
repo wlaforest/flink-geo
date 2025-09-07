@@ -194,6 +194,40 @@ public class Spatial4JHelper {
         geoShape1 = stringDeserializer.getSpatial4JShapeFromString(geo);
         return geoShape1.getArea(spatialContext);
     }
+    /**
+     * Takes a shape provided by geo1 and return the set of H3 cells at the specified resolution to cover it.
+     * This supports multiple string encodings like WKT and GeoJSON.  In theory any format supported by the underlying
+     * Spatial4j library.  Please check the Spatial4j documentation to see what shapes are supported in what models.
+     *
+     * @param geo1 geo shape
+     * @param resolution H3 resolution from 0 to 15
+     * @return List of H3 cell addresses
+     */
+    public List<String> coveringH3Cells(String geo1, int resolution) throws GeometryParseException {
+        Shape geoShape1;
+        Spatial4jStringDeserializer stringDeserializer = getDeserializer();
+        geoShape1 = stringDeserializer.getSpatial4JShapeFromString(geo1);
+
+        try {
+            H3Utils h3Utils = new H3Utils();
+            
+            Rectangle bb = geoShape1.getBoundingBox();
+            
+            // Use H3's polygon covering for the bounding box
+            List<String> cells = h3Utils.boundingBoxToCells(
+                bb.getMinY(),  // minLat
+                bb.getMinX(),  // minLon
+                bb.getMaxY(),  // maxLat
+                bb.getMaxX(),  // maxLon
+                resolution
+            );
+            
+            return cells;
+        } catch (Exception e) {
+            throw new GeometryParseException("Error generating H3 cells: " + e.getMessage(), e);
+        }
+    }
+
     public ShapeFactory getShapeFactory()
     {
         return shapeFactory;
